@@ -1,0 +1,17 @@
+[package]
+name = "chat_app"
+version = "0.1.0"
+authors = ["Nnaemeka Nwankwo <codebasetwo@gmail.com>"]
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+path = "src/main.rs"
+name = "chat_app"
+
+[dependencies]
+actix-web = "4"
+serde = { version = "1.0", features = ["derive"] }
+config = "0.15.22"
