@@ -15,3 +15,25 @@ name = "chat_app"
 actix-web = "4"
 serde = { version = "1.0", features = ["derive"] }
 config = "0.15.22"
+argon2 = "0.5.3"
+validator = "0.20.0"
+unicode-segmentation = "1.13.2"
+chrono = { version = "0.4.22", default-features = false, features = ["clock"] }
+uuid = { version = "1.23.1", features = ["v4", "serde"] }
+
+
+[dependencies.sqlx]
+version = "0.8"
+default-features = false
+features = [
+    "runtime-tokio",
+    "tls-rustls",
+    "macros",
+    "postgres",
+    "uuid",
+    "chrono",
+    "migrate"
+]
+
+[dev-dependencies]
+claims = "0.8.0"
