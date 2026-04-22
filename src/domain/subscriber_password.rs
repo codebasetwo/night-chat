@@ -11,8 +11,8 @@ use argon2::{
 
 #[derive(Debug)]
 pub struct SubscriberPassword {
-    hashed_password: String,
-    plaintext_password: String,
+    pub hashed_password: Vec<u8>,
+    pub plaintext_password: String,
 }
 
 impl SubscriberPassword {
@@ -43,18 +43,18 @@ impl SubscriberPassword {
 }
 
 impl SubscriberPassword {
-    fn new(plaintext_password: &str) -> Self {
+    pub fn new(plaintext_password: &str) -> Self {
         let hashed_password = SubscriberPassword::hash_password(&plaintext_password.as_bytes())
             .unwrap();
         let plaintext_password = plaintext_password.to_string();
         Self { plaintext_password, hashed_password }
     }
 
-    fn hash_password(plaintext_password: &[u8]) -> Result<String, argon2::password_hash::Error> {
+    fn hash_password(plaintext_password: &[u8]) -> Result<Vec<u8>, argon2::password_hash::Error> {
         // Use argon2 to hash the password
         let salt = SaltString::generate(&mut OsRng);
         let argon = Argon2::default();
-        let password_hash = argon.hash_password(plaintext_password, &salt)?.to_string();
+        let password_hash = argon.hash_password(plaintext_password, &salt)?.to_string().into_bytes();
         Ok(password_hash)
     }
 

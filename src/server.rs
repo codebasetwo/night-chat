@@ -46,9 +46,9 @@ pub fn get_connection_pool(database_config: &DatabaseSettings) -> PgPool {
 async fn run_server(
     tcp_listener: TcpListener,
     db_pool: PgPool,
-) -> Result<dev::Server, std::io::Error>{
-    let server = HttpServer::new(|| {
+) -> Result<dev::Server, anyhow::Error>{
     let db_pool =web::Data::new(db_pool);
+    let server = HttpServer::new(move || {
         App::new()
             .route("/", web::get().to(home))
             .route("/{name}", web::get().to(greet))

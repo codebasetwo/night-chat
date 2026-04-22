@@ -7,7 +7,6 @@ use actix_web::{
 use::sqlx::{
     Executor,
 };
-use chrono::Utc;
 use sqlx::{
     PgPool,
     Postgres,
@@ -20,7 +19,7 @@ use crate::domain::SubscriberEmail;
 use crate::domain::SubscriberName;
 use crate::domain::SubscriberPassword;
 
-struct FormSignUpData {
+pub struct FormSignUpData {
     email: String,
     first_name: String,
     last_name: String,
@@ -77,7 +76,7 @@ pub async fn signup(
         .begin()
         .await
         .context("Failed to acquire a Postgres connection from the pool")?;
-    let subscriber_id = insert_subscriber(&new_subscriber, &mut transaction)
+    let _user_id = insert_users(&new_subscriber, &mut transaction)
         .await
         .context("Failed to insert new subscriber in the database.")?;
     // commit the the transaction to save subcriber in the 
@@ -90,25 +89,24 @@ pub async fn signup(
 }
 
 
-pub async fn insert_subscriber(
+pub async fn insert_users(
     new_subscriber: &NewSubscriber, 
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<Uuid, sqlx::Error> {
-    let subscriber_id = Uuid::new_v4();
+    let user_id = Uuid::new_v4();
     let query = sqlx::query!(
         r#"
-        INSERT INTO subscribers (id, email, first_name, last_name, password_hash, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO users (id, email, first_name, last_name, password_hash)
+        VALUES ($1, $2, $3, $4, $5)
         "#,
-        subcriber_id,
+        user_id,
         new_subscriber.email.as_ref(),
         new_subscriber.first_name.as_ref(),
         new_subscriber.last_name.as_ref(),
         new_subscriber.password.hashed_password,
-        Utc::now(),
     );
     transaction.execute(query).await?;
-    Ok(subscriber_id)
+    Ok(user_id)
 
 }
 

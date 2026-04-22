@@ -28,7 +28,8 @@ test:
 ## db/psql: connect to the database using psql
 .PHONY: db/psql
 db/psql:
-	psql ${DATABASE_URL}
+	@echo 'Connecting to database'
+	@psql ${DATABASE_URL}
 ## db/migrations/new name=$1: create a new database migration
 .PHONY: db/migrations/new
 db/migrations/new:
