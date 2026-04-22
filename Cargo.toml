@@ -20,7 +20,9 @@ validator = "0.20.0"
 unicode-segmentation = "1.13.2"
 chrono = { version = "0.4.22", default-features = false, features = ["clock"] }
 uuid = { version = "1.23.1", features = ["v4", "serde"] }
-
+secrecy = { version = "0.10", features = ["serde"] }
+thiserror = "2"
+anyhow = "1.0"
 
 [dependencies.sqlx]
 version = "0.8"
