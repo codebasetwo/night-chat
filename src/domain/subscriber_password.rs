@@ -8,11 +8,12 @@ use argon2::{
     },
     Argon2,
 };
+use secrecy::SecretString;
 
 #[derive(Debug)]
 pub struct SubscriberPassword {
-    pub hashed_password: Vec<u8>,
-    pub plaintext_password: String,
+    pub hashed_password: SecretString,
+    pub plaintext_password: SecretString,
 }
 
 impl SubscriberPassword {
@@ -47,21 +48,23 @@ impl SubscriberPassword {
         let hashed_password = SubscriberPassword::hash_password(&plaintext_password.as_bytes())
             .unwrap();
         let plaintext_password = plaintext_password.to_string();
+        let plaintext_password = SecretString::new(plaintext_password);
         Self { plaintext_password, hashed_password }
     }
 
-    fn hash_password(plaintext_password: &[u8]) -> Result<Vec<u8>, argon2::password_hash::Error> {
+    fn hash_password(plaintext_password: &[u8]) -> Result<SecretString, argon2::password_hash::Error> {
         // Use argon2 to hash the password
         let salt = SaltString::generate(&mut OsRng);
         let argon = Argon2::default();
-        let password_hash = argon.hash_password(plaintext_password, &salt)?.to_string().into_bytes();
-        Ok(password_hash)
+        let password_hash = argon.hash_password(plaintext_password, &salt)?.to_string();
+        Ok(SecretString::new(password_hash))
+
     }
 
     pub fn verify_password(
         plaintext_password: &[u8], 
-        hashed_password: String) -> Result<bool, argon2::password_hash::Error> {
-        let parsed_hash = PasswordHash::new(&hashed_password)?;
+        hashed_password: &str) -> Result<bool, argon2::password_hash::Error> {
+        let parsed_hash = PasswordHash::new(hashed_password)?;
         Ok(Argon2::default().verify_password(plaintext_password, &parsed_hash).is_ok())
     }
 }

@@ -1,3 +1,10 @@
 application:
   port: 8000
   host: "localhost"
+database:
+  host: "127.0.0.1"
+  port: 5432
+  username: "emeka"
+  password: "password"
+  database_name: "chatdb"
+  require_ssl: false

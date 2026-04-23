@@ -1,7 +1,7 @@
 use std::net::TcpListener;
 use actix_web::{ dev, web, App, HttpServer };
 use sqlx::postgres::{ PgPoolOptions, PgPool };
-use crate::routes::{ home, greet };
+use crate::routes::{ home, greet, signup, login };
 use crate::configuration::DatabaseSettings;
 use crate::configuration::Settings;
 
@@ -51,6 +51,8 @@ async fn run_server(
     let server = HttpServer::new(move || {
         App::new()
             .route("/", web::get().to(home))
+            .route("/signup", web::post().to(signup))
+            .route("/login", web::post().to(login))
             .route("/{name}", web::get().to(greet))
             .app_data(db_pool.clone())
     })

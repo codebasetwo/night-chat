@@ -13,12 +13,14 @@ use sqlx::{
     Transaction,
 };
 use anyhow::Context;
+use secrecy::ExposeSecret;
 use uuid::Uuid;
 use crate::domain::NewSubscriber;
 use crate::domain::SubscriberEmail;
 use crate::domain::SubscriberName;
 use crate::domain::SubscriberPassword;
 
+#[derive(serde::Deserialize)]
 pub struct FormSignUpData {
     email: String,
     first_name: String,
@@ -103,7 +105,7 @@ pub async fn insert_users(
         new_subscriber.email.as_ref(),
         new_subscriber.first_name.as_ref(),
         new_subscriber.last_name.as_ref(),
-        new_subscriber.password.hashed_password,
+        new_subscriber.password.hashed_password.expose_secret(),
     );
     transaction.execute(query).await?;
     Ok(user_id)
