@@ -4,6 +4,12 @@ use sqlx::postgres::{ PgPoolOptions, PgPool };
 use crate::routes::{ home, greet, signup, login };
 use crate::configuration::DatabaseSettings;
 use crate::configuration::Settings;
+use crate::handlers::message::{
+    get_all_contacts, 
+    get_messages_by_user_id, 
+    send_message, 
+    get_chat_partners
+};
 
 
 pub struct Application {
@@ -53,6 +59,15 @@ async fn run_server(
             .route("/", web::get().to(home))
             .route("/signup", web::post().to(signup))
             .route("/login", web::post().to(login))
+            // create routes for message prefix /messages without duplicating the prefix
+            .service(
+                web::scope("/messages")
+                    .route("/contacts", web::get().to(get_all_contacts))
+                    .route("/chats", web::get().to(get_chat_partners))
+                    .route("/{user_id}", web::get().to(get_messages_by_user_id))
+                    .route("/send/{id}", web::post().to(send_message))
+            )
+            // test route
             .route("/{name}", web::get().to(greet))
             .app_data(db_pool.clone())
     })
