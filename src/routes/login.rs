@@ -5,14 +5,12 @@ use actix_web::{
     http::StatusCode,
 };
 use anyhow:: { Context };
-use chrono::{ DateTime, Duration, Utc};
-use secrecy::{ ExposeSecret, SecretString, Secret };
-use sqlx::{ Executor, PgPool, Postgres, Transaction };
-use rand::distr::Alphanumeric;
-use rand::{rng, RngExt};
+use chrono::{Duration, Utc};
+use secrecy::{ ExposeSecret, SecretString};
+use sqlx::{ PgPool, };
 use uuid;
 use crate::domain::{ SubscriberPassword };
-use crate::utils::{ Token };
+use crate::utils::{ Token, get_user_data };
 
 #[derive(thiserror::Error, Debug)]
 pub enum LoginError{
@@ -59,8 +57,8 @@ pub async fn login(
     let user_password = SubscriberPassword::new(credentials.password.expose_secret());
     let (user_id, expected_password_hash): (uuid::Uuid, SecretString) = 
             get_user_data(&pool, &credentials.email)
-            .await?
-            .ok_or(LoginError::UserNotFound)?;
+            .await
+            .map_err(|_| LoginError::UserNotFound)?;
     let _ = SubscriberPassword::verify_password(
         user_password.plaintext_password.expose_secret().as_bytes(),
         expected_password_hash.expose_secret(),
@@ -77,11 +75,11 @@ pub async fn login(
         user_id,
         "authentication",
         Utc::now() + Duration::hours(24)
-    )
+    );
     // Store token
     token.insert_token(&mut transaction)
         .await
-        .context("Failed to insert the new token into database")?;
+        .context("Failed to store the authentication token in the databse")?;
 
     transaction
         .commit()

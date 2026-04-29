@@ -1,5 +1,5 @@
 use std::net::TcpListener;
-use actix_web::{ dev, web, App, HttpServer };
+use actix_web::{ dev, middleware::from_fn, web, App, HttpServer };
 use sqlx::postgres::{ PgPoolOptions, PgPool };
 use crate::routes::{ home, greet, signup, login };
 use crate::configuration::DatabaseSettings;
@@ -10,7 +10,7 @@ use crate::handlers::message::{
     send_message, 
     get_chat_partners
 };
-
+use crate::middlewares::auth_middleware;
 
 pub struct Application {
     port: u16,
@@ -66,6 +66,7 @@ async fn run_server(
                     .route("/chats", web::get().to(get_chat_partners))
                     .route("/{user_id}", web::get().to(get_messages_by_user_id))
                     .route("/send/{id}", web::post().to(send_message))
+                    .wrap(from_fn(auth_middleware))
             )
             // test route
             .route("/{name}", web::get().to(greet))

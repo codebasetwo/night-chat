@@ -1,16 +1,15 @@
 use rand::distr::Alphanumeric;
 use rand::{rng, RngExt};
-use sqlx::{Transaction, Postgres};
+use sqlx::{Executor, Transaction, Postgres};
 use chrono:: {DateTime, Utc};
 use uuid;
-use Secrecy::{SecretString, ExposeSecret};
 
 pub struct Token {
-    hash: &[u8],
+    hash: Vec<u8>,
     expiry: DateTime<Utc>,
     scope: String,
     user_id: uuid::Uuid,
-    plaintext: String,
+    _plaintext: String,
 }
 
 impl Token {
@@ -26,7 +25,7 @@ impl Token {
             expiry,
             scope: scope.to_string(),
             user_id,
-            plaintext,
+            _plaintext: plaintext,
         }
     }
 
@@ -39,7 +38,7 @@ impl Token {
     }
 
     // Hash token for storage (you should never store raw tokens)
-    fn hash_token(token: &str) -> Vec<u8> {
+    pub fn hash_token(token: &str) -> Vec<u8> {
         use sha2::{Sha256, Digest};
         let mut hasher = Sha256::new();
         hasher.update(token.as_bytes());
@@ -50,10 +49,10 @@ impl Token {
         &self,
         transaction: &mut Transaction<'_, Postgres>,
     ) -> Result<(), StoreTokenError> {
-
         let query = sqlx::query!(
             r#"
-            INSERT INTO tokens (user_id, hash, expiry, scope);
+            INSERT INTO tokens (user_id, hash, expiry, scope)
+            VALUES ($1, $2, $3, $4);
             "#,
             self.user_id,
             self.hash,
