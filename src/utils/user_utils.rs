@@ -9,6 +9,14 @@ pub struct User{
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+// Return only neccessary data to the client.
+#[derive(serde::Serialize)]
+pub struct UserSummary {
+    pub id: uuid::Uuid,
+    pub first_name: String,
+    pub email: String,
+}
+
 pub async fn get_user_from_token(
     pool: &sqlx::PgPool, 
     token: &str,
@@ -58,4 +66,25 @@ pub async fn get_user_data(
     .fetch_one(pool)
     .await?;
     Ok((row.id, SecretString::new(row.password_hash)))
+}
+
+pub async fn get_all_users(
+    pool: &sqlx::PgPool,
+    exclude_user_id: uuid::Uuid,    
+) -> Result<Vec<UserSummary>, anyhow::Error> {
+    let rows = sqlx::query!(
+        r#"
+            SELECT id, first_name, email FROM users
+            WHERE id != $1;
+        "#,
+        exclude_user_id,
+    )
+    .fetch_all(pool)
+    .await?;
+    let users: Vec<UserSummary> = rows.into_iter().map(|r| UserSummary {
+        id: r.id,
+        first_name: r.first_name,
+        email: r.email,
+    }).collect();
+    Ok(users)
 }
