@@ -2,7 +2,6 @@ use actix_web::{
     web,
     http,
     HttpResponse,
-    Responder,
     HttpRequest,
     ResponseError,
     HttpMessage,
@@ -46,6 +45,12 @@ impl std::fmt::Display for DbError {
 impl From<anyhow::Error> for DbError {
     fn from(error: anyhow::Error) -> Self {
         Self(error)
+    }
+}
+
+impl From<sqlx::Error> for DbError {
+    fn from(error: sqlx::Error) -> Self {
+        Self(anyhow::anyhow!(error))
     }
 }
 

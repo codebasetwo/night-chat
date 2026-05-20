@@ -69,13 +69,13 @@ where B: MessageBody,
                     .await
                     .map_err(|e| AuthError::Unexpected(e.to_string()))?;
                     
-                // 3. Handle the Option
-                if let Some(user) = user_option {
-                    req.extensions_mut().insert(user);
-                    next.call(req).await//.map_err(|e| AuthError::Unexpected(e.to_string()))
-                } else {
-                    Err(AuthError::Unauthorized.into())
-                };
+                match user_option {
+                    Some(user) => {
+                        req.extensions_mut().insert(user);
+                        return next.call(req).await
+                    }
+                    None => return Err(AuthError::Unauthorized.into()),
+                }
             }
         }
         return Err(AuthError::Unauthorized.into());

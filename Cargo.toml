@@ -18,7 +18,7 @@ config = "0.15.22"
 argon2 = "0.5.3"
 validator = "0.20.0"
 unicode-segmentation = "1.13.2"
-chrono = { version = "0.4.22", default-features = false, features = ["clock"] }
+chrono = { version = "0.4.22", default-features = false, features = ["clock", "serde"] }
 uuid = { version = "1.23.1", features = ["v4", "serde"] }
 secrecy = { version = "0.8", features = ["serde"] }
 thiserror = "2"

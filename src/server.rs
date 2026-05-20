@@ -62,6 +62,8 @@ async fn run_server(
             // create routes for message prefix /messages without duplicating the prefix
             .service(
                 web::scope("/messages")
+                    // .wrap(from_fn(rate_limit_middleware))
+                    // .wrap(from_fn(auth_middleware))
                     .route("/contacts", web::get().to(get_all_contacts))
                     .route("/chats", web::get().to(get_chat_partners))
                     .route("/{user_id}", web::get().to(get_messages_by_user_id))

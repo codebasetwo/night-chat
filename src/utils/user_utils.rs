@@ -10,7 +10,7 @@ pub struct User{
 }
 
 // Return only neccessary data to the client.
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, sqlx::FromRow)]
 pub struct UserSummary {
     pub id: uuid::Uuid,
     pub first_name: String,
