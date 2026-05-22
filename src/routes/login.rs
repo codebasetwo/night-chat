@@ -10,7 +10,7 @@ use secrecy::{ ExposeSecret, SecretString};
 use sqlx::{ PgPool, };
 use uuid;
 use crate::domain::{ SubscriberPassword };
-use crate::utils::{ Token, get_user_data };
+use crate::utils::{ Token, get_user_data, spawn_blocking_with_tracing };
 
 #[derive(thiserror::Error, Debug)]
 pub enum LoginError{
@@ -60,16 +60,20 @@ pub async fn login(
         email: login_form.0.email,
         password: login_form.0.password,
     };
-    let user_password = SubscriberPassword::new(credentials.password.expose_secret());
-    let (user_id, expected_password_hash): (uuid::Uuid, SecretString) = 
-            get_user_data(&pool, &credentials.email)
-            .await
-            .map_err(|_| LoginError::UserNotFound)?;
-    let _ = SubscriberPassword::verify_password(
-        user_password.plaintext_password.expose_secret().as_bytes(),
-        expected_password_hash.expose_secret(),
-    )?;
-
+    let (user_id, expected_password_hash): (uuid::Uuid, SecretString) = get_user_data(&pool, &credentials.email)
+        .await
+        .map_err(|_| LoginError::UserNotFound)?;
+    let plaintext_password = credentials.password.expose_secret().as_bytes().to_vec();
+    let hash_string = expected_password_hash.expose_secret().to_string();
+    spawn_blocking_with_tracing( move || {
+        SubscriberPassword::verify_password(
+            &plaintext_password,
+            &hash_string,
+        )
+    })
+    .await
+    .context("failed to spawn blocking task")??; 
+        
     // Get database connection
     let mut transaction = pool
         .begin()

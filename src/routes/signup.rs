@@ -13,7 +13,7 @@ use sqlx::{
     Transaction,
 };
 use anyhow::Context;
-use secrecy::ExposeSecret;
+use secrecy::{ ExposeSecret, SecretString };
 use uuid::Uuid;
 use crate::domain::NewSubscriber;
 use crate::domain::SubscriberEmail;
@@ -25,7 +25,7 @@ pub struct FormSignUpData {
     email: String,
     first_name: String,
     last_name: String,
-    password: String,
+    password: SecretString,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -54,14 +54,14 @@ impl TryFrom<FormSignUpData> for NewSubscriber {
         let email = SubscriberEmail::parse(value.email)?;
         let first_name = SubscriberName::parse(value.first_name)?;
         let last_name = SubscriberName::parse(value.last_name)?;
-        let password = SubscriberPassword::parse(value.password)?;
+        let password = SubscriberPassword::parse(value.password.expose_secret().to_string())?;
 
         Ok(
             Self{ 
                 email, 
                 first_name, 
                 last_name, 
-                password 
+                password,
         })
     }
 }
@@ -79,14 +79,16 @@ pub async fn signup(
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, SignUpError> {
     // Get the form data and convert to a new subscriber
-    let new_subscriber = form.0.try_into().map_err(SignUpError::ValidationError)?;
+    let new_subscriber: NewSubscriber = form.0.try_into().map_err(SignUpError::ValidationError)?;
+    let subscriber_password = SubscriberPassword::new(new_subscriber.password.expose_secret().to_string()).await;
+    
     // Insert the subscriber into the database
     // Use transaction to ensure that the subscriber is only inserted if all operations succeed
     let mut transaction = pool
         .begin()
         .await
         .context("Failed to acquire a Postgres connection from the pool")?;
-    let _user_id = insert_users(&new_subscriber, &mut transaction)
+    let _user_id = insert_users(&new_subscriber, subscriber_password.hashed_password, &mut transaction)
         .await
         .context("Failed to insert new subscriber in the database.")?;
     // commit the the transaction to save subcriber in the 
@@ -104,7 +106,8 @@ pub async fn signup(
     skip(new_subscriber, transaction),
 )]
 pub async fn insert_users(
-    new_subscriber: &NewSubscriber, 
+    new_subscriber: &NewSubscriber,
+    hashed_password: SecretString, 
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<Uuid, sqlx::Error> {
     let user_id = Uuid::new_v4();
@@ -117,7 +120,7 @@ pub async fn insert_users(
         new_subscriber.email.as_ref(),
         new_subscriber.first_name.as_ref(),
         new_subscriber.last_name.as_ref(),
-        new_subscriber.password.hashed_password.expose_secret(),
+        hashed_password.expose_secret(),
     );
     transaction.execute(query).await?;
     Ok(user_id)

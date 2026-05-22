@@ -9,15 +9,15 @@ use argon2::{
     Argon2,
 };
 use secrecy::SecretString;
+use crate::utils::spawn_blocking_with_tracing;
 
 #[derive(Debug)]
 pub struct SubscriberPassword {
     pub hashed_password: SecretString,
-    pub plaintext_password: SecretString,
 }
 
 impl SubscriberPassword {
-    pub fn parse(pw: String) -> Result<SubscriberPassword, String> {
+    pub fn parse(pw: String) -> Result<SecretString, String> {
         // Password is no empty string
         if pw.is_empty() {
             return Err("Password cannot be empty".to_string())
@@ -38,18 +38,25 @@ impl SubscriberPassword {
             )
         }
 
-        let subscriber_password = SubscriberPassword::new(&pw);
-        Ok(subscriber_password)
+        Ok(SecretString::new(pw))
+        // let subscriber_password = SubscriberPassword::new(&pw);
+        // Ok(subscriber_password)
     } 
 }
 
 impl SubscriberPassword {
-    pub fn new(plaintext_password: &str) -> Self {
-        let hashed_password = SubscriberPassword::hash_password(&plaintext_password.as_bytes())
-            .unwrap();
-        let plaintext_password = plaintext_password.to_string();
-        let plaintext_password = SecretString::new(plaintext_password);
-        Self { plaintext_password, hashed_password }
+    #[tracing::instrument(
+        name = "Hashing password",
+        skip(plaintext_password),
+    )]
+    pub async fn new(plaintext_password: String) -> Self {
+       let hashed_password = spawn_blocking_with_tracing(move || {
+            Self::hash_password(plaintext_password.as_bytes()).unwrap()
+        })
+        .await
+        .expect("Task panicked");
+        
+        Self { hashed_password }
     }
 
     fn hash_password(plaintext_password: &[u8]) -> Result<SecretString, argon2::password_hash::Error> {
@@ -61,11 +68,16 @@ impl SubscriberPassword {
 
     }
 
+    #[tracing::instrument(
+        name = "Verify password hash",
+        skip(plaintext_password, hashed_password)
+    )]
     pub fn verify_password(
         plaintext_password: &[u8], 
-        hashed_password: &str) -> Result<bool, argon2::password_hash::Error> {
-        let parsed_hash = PasswordHash::new(hashed_password)?;
-        Ok(Argon2::default().verify_password(plaintext_password, &parsed_hash).is_ok())
+        hashed_password: &str
+    ) -> Result<(), argon2::password_hash::Error> {
+            let parsed_hash = PasswordHash::new(hashed_password)?;
+            Argon2::default().verify_password(plaintext_password, &parsed_hash)
     }
 }
 
