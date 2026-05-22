@@ -66,6 +66,14 @@ impl TryFrom<FormSignUpData> for NewSubscriber {
     }
 }
 
+#[tracing::instrument(
+    name = "Signup user",
+    skip(form, pool),
+    fields(
+        username = %form.first_name,
+        email = %form.email,
+    )
+)]
 pub async fn signup(
     form: web::Form<FormSignUpData>,
     pool: web::Data<PgPool>,
@@ -91,6 +99,10 @@ pub async fn signup(
 }
 
 
+#[tracing::instrument(
+    name = "Inserting new user in database.",
+    skip(new_subscriber, transaction),
+)]
 pub async fn insert_users(
     new_subscriber: &NewSubscriber, 
     transaction: &mut Transaction<'_, Postgres>,

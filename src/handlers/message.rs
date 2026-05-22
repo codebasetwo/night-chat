@@ -66,6 +66,10 @@ impl ResponseError for DbError {
 }
 
 // get all contacts // find all user that is not equal to the logged in user without password
+#[tracing::instrument(
+    name = "Get all contacts",
+    skip(req),
+)]
 pub async fn get_all_contacts(req: HttpRequest) -> Result<HttpResponse, DbError> {
     // get logged in user data from request extensions
     let logged_in_user_id: uuid::Uuid = req.extensions_mut()
@@ -82,6 +86,13 @@ pub async fn get_all_contacts(req: HttpRequest) -> Result<HttpResponse, DbError>
 }
 
 // Get messages between two users (logged-in user and another user)
+#[tracing::instrument(
+    name = "Getting messages between users",
+    skip(req, user_id),
+    fields(
+        user_id = %user_id
+    )
+)]
 pub async fn get_messages_by_user_id(
     req: HttpRequest,
     user_id: web::Path<uuid::Uuid>,
@@ -114,6 +125,10 @@ pub async fn get_messages_by_user_id(
     Ok(HttpResponse::Ok().json(messages))
 }
 
+#[tracing::instrument(
+    name = "Get all contacts",
+    skip(req, receiver_id, payload),
+)]
 // Send a message to another user
 pub async fn send_message(
     req: HttpRequest,
@@ -177,13 +192,18 @@ pub async fn send_message(
     Ok(HttpResponse::Created().json(new_message))
 }
 
+
 // Get all chat partners (users who have exchanged messages with logged-in user)
+#[tracing::instrument(
+    name = "Get all chat partners for current user.",
+    skip(req),
+)]
 pub async fn get_chat_partners(req: HttpRequest) -> Result<HttpResponse, DbError> {
     let logged_in_user_id: uuid::Uuid = req.extensions_mut()
         .get::<User>()
         .map(|user| user.id)
         .unwrap();
-
+    
     let pool = req.app_data::<web::Data<PgPool>>()
         .ok_or_else(|| anyhow::anyhow!("database connection pool not found"))?;
 

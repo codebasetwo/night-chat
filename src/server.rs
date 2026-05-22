@@ -11,6 +11,7 @@ use crate::handlers::message::{
     get_chat_partners
 };
 use crate::middlewares::auth_middleware;
+use tracing_actix_web::TracingLogger;
 
 pub struct Application {
     port: u16,
@@ -56,6 +57,7 @@ async fn run_server(
     let db_pool =web::Data::new(db_pool);
     let server = HttpServer::new(move || {
         App::new()
+            .wrap(TracingLogger::default())
             .route("/", web::get().to(home))
             .route("/signup", web::post().to(signup))
             .route("/login", web::post().to(login))

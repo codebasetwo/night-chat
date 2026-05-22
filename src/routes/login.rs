@@ -45,7 +45,13 @@ impl From<argon2::password_hash::Error> for LoginError {
     }
 }
 
-
+#[tracing::instrument(
+    name = "Login in user",
+    skip(login_form, pool),
+    fields(
+        email = %login_form.email,
+    )
+)]
 pub async fn login(
     login_form: web::Form<LoginCredentials>,
     pool: web::Data<PgPool>,

@@ -17,6 +17,11 @@ pub struct UserSummary {
     pub email: String,
 }
 
+
+#[tracing::instrument(
+    name = "Getting user token from database for authentication."
+    skip(pool, token, token_scope)
+)]
 pub async fn get_user_from_token(
     pool: &sqlx::PgPool, 
     token: &str,
@@ -50,7 +55,11 @@ pub async fn get_user_from_token(
     Ok(user) 
 }
 
-
+// get user id and password
+#[tracing::instrument(
+    name = "Getting user login in for validation.",
+    skip(pool, email),
+)]
 pub async fn get_user_data(
     pool: &sqlx::PgPool,
     email: &str,
@@ -68,6 +77,10 @@ pub async fn get_user_data(
     Ok((row.id, SecretString::new(row.password_hash)))
 }
 
+#[tracing::instrument(
+    name = "Getting all users in the database",
+    skip(pool, exclude_user_id),
+)]
 pub async fn get_all_users(
     pool: &sqlx::PgPool,
     exclude_user_id: uuid::Uuid,    
