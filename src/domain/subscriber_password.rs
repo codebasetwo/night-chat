@@ -39,8 +39,6 @@ impl SubscriberPassword {
         }
 
         Ok(SecretString::new(pw))
-        // let subscriber_password = SubscriberPassword::new(&pw);
-        // Ok(subscriber_password)
     } 
 }
 

@@ -63,7 +63,7 @@ pub async fn get_user_from_token(
 pub async fn get_user_data(
     pool: &sqlx::PgPool,
     email: &str,
-) -> Result<(uuid::Uuid,  SecretString), anyhow::Error> {
+) -> Result<(uuid::Uuid,  SecretString), sqlx::Error> {
     let row = sqlx::query!(
         r#"
             SELECT id, password_hash

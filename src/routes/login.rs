@@ -10,14 +10,23 @@ use secrecy::{ ExposeSecret, SecretString};
 use sqlx::{ PgPool, };
 use uuid;
 use crate::domain::{ SubscriberPassword };
-use crate::utils::{ Token, get_user_data, spawn_blocking_with_tracing };
+use crate::utils::{ Token, get_user_data, spawn_blocking_with_tracing, StoreTokenError };
 
 #[derive(thiserror::Error, Debug)]
 pub enum LoginError{
     #[error("Authentication failed")]
     AuthError(#[source] anyhow::Error),
-    #[error("User not found")]
-    UserNotFound,
+
+    /// Database lookups failed or timed out
+    #[error("Database error occurred")]
+    DatabaseError(#[from] sqlx::Error),
+
+    #[error("Invalid email or password")]
+    InvalidCredentials,
+
+    #[error(transparent)]
+    TokenError(#[from] StoreTokenError),
+
     #[error("something went wrong")]
     UnexpectedError(#[from] anyhow::Error),
 }
@@ -27,7 +36,9 @@ impl ResponseError for LoginError {
     fn status_code(&self) -> StatusCode {
         match self {
             LoginError::AuthError(_) => StatusCode::UNAUTHORIZED,
-            LoginError::UserNotFound => StatusCode::UNAUTHORIZED,
+            LoginError::DatabaseError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            LoginError::InvalidCredentials => StatusCode::UNAUTHORIZED,
+            LoginError::TokenError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             LoginError::UnexpectedError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -56,29 +67,39 @@ pub async fn login(
     login_form: web::Form<LoginCredentials>,
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, LoginError> {
-    let credentials = LoginCredentials {
-        email: login_form.0.email,
-        password: login_form.0.password,
-    };
-    let (user_id, expected_password_hash): (uuid::Uuid, SecretString) = get_user_data(&pool, &credentials.email)
+    let email = login_form.0.email;
+    let password = login_form.0.password;
+
+    let (user_id, expected_password_hash): (uuid::Uuid, SecretString) = get_user_data(&pool, &email)
         .await
-        .map_err(|_| LoginError::UserNotFound)?;
-    let plaintext_password = credentials.password.expose_secret().as_bytes().to_vec();
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => LoginError::InvalidCredentials,
+            other_db_error => LoginError::DatabaseError(other_db_error),
+        })?;
+
+    let plaintext_password = password.expose_secret().as_bytes().to_vec();
     let hash_string = expected_password_hash.expose_secret().to_string();
-    spawn_blocking_with_tracing( move || {
+
+    // Verify password off-thread
+    let verification_result = spawn_blocking_with_tracing( move || {
         SubscriberPassword::verify_password(
             &plaintext_password,
             &hash_string,
         )
     })
     .await
-    .context("failed to spawn blocking task")??; 
+    .map_err(|e| 
+        LoginError::UnexpectedError(anyhow::anyhow!(e))
+    )
+    .context("failed to spawn blocking task")?;
+    
+    // If password verification library failed or password was wrong
+    verification_result.map_err(|_auth_failed| LoginError::InvalidCredentials)?;
         
     // Get database connection
     let mut transaction = pool
         .begin()
-        .await
-        .context("Failed to acquire a Postgres connection from the pool")?;
+        .await?;
     
     // Generate token
     let token = Token::new(
@@ -88,13 +109,11 @@ pub async fn login(
     );
     // Store token
     token.insert_token(&mut transaction)
-        .await
-        .context("Failed to store the authentication token in the databse")?;
+        .await?;
 
     transaction
         .commit()
-        .await
-        .context("failed to commit SQL transaction to store the authentication token")?;
+        .await?;
     Ok(HttpResponse::Ok().finish())
 
 }

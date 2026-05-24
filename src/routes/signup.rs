@@ -12,7 +12,6 @@ use sqlx::{
     Postgres,
     Transaction,
 };
-use anyhow::Context;
 use secrecy::{ ExposeSecret, SecretString };
 use uuid::Uuid;
 use crate::domain::NewSubscriber;
@@ -30,20 +29,32 @@ pub struct FormSignUpData {
 
 #[derive(thiserror::Error, Debug)]
 pub enum SignUpError {
-    // add error annotations to variant for display trait
-    #[error("{0}")]
+    #[error("An account with this email already exists.")]
+    EmailConflict,
+
+    #[error("Failed to acquire a Postgres connection from the pool")]
+    PoolConnectionFailed(#[source] sqlx::Error),
+
+    #[error("Failed to commit SQL transaction to store a new subscriber.")]
+    TransactionCommitFailed(#[source] sqlx::Error),
+
+    #[error("Failed to execute subscriber insertion query")]
+    UserInsertionFailed(#[source] sqlx::Error),
+
+    #[error("validating user {0}")]
     ValidationError(String),
-    #[error(transparent)]
-    // add anyhow to get any other kind of error
-    UnexpectedError(#[from] anyhow::Error)
+
 }
 
 /// Gives actix_web the ability to turn error into web response
 impl ResponseError for SignUpError {
     fn status_code(&self) -> StatusCode {
         match self {
+            SignUpError::EmailConflict => StatusCode::CONFLICT, // 409 Conflict
+            SignUpError::PoolConnectionFailed(_) |
+            SignUpError::TransactionCommitFailed(_) | 
+            SignUpError::UserInsertionFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             SignUpError::ValidationError(_) => StatusCode::BAD_REQUEST,
-            SignUpError::UnexpectedError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
@@ -70,7 +81,7 @@ impl TryFrom<FormSignUpData> for NewSubscriber {
     name = "Signup user",
     skip(form, pool),
     fields(
-        username = %form.first_name,
+        first_name = %form.first_name,
         email = %form.email,
     )
 )]
@@ -87,17 +98,23 @@ pub async fn signup(
     let mut transaction = pool
         .begin()
         .await
-        .context("Failed to acquire a Postgres connection from the pool")?;
+        .map_err(SignUpError::PoolConnectionFailed)?;
+
     let _user_id = insert_users(&new_subscriber, subscriber_password.hashed_password, &mut transaction)
         .await
-        .context("Failed to insert new subscriber in the database.")?;
+        .map_err(|e| match e {
+            sqlx::Error::Database(db_err) if db_err.is_unique_violation() => {
+                SignUpError::EmailConflict
+            }
+            other_sql_error => SignUpError::UserInsertionFailed(other_sql_error),
+        })?;
     // commit the the transaction to save subcriber in the 
     transaction
         .commit()
         .await
-        .context("Failed to commit SQL transaction to store a new subscriber.")?;
+        .map_err(SignUpError::TransactionCommitFailed)?;
     // Return a response to client
-    Ok(HttpResponse::Ok().finish())
+    Ok(HttpResponse::Created().finish())
 }
 
 

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{
     PgPool,
 };
-use crate::utils::{ UserSummary, User, get_all_users};
+use crate::utils::{UserSummary, User, get_all_users};
 
 // Message struct representing a message in the database
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
@@ -30,17 +30,10 @@ pub struct SendMessageRequest {
     pub image: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
+#[error("error occured while processing request.")]
 pub struct DbError(anyhow::Error);
 
-impl std::fmt::Display for DbError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "error occured while processing request."
-        )
-    }
-}
 
 impl From<anyhow::Error> for DbError {
     fn from(error: anyhow::Error) -> Self {
