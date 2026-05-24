@@ -179,8 +179,6 @@ pub async fn send_message(
     .await?;
 
     // TODO: Send message in real-time via WebSocket
-    // For now, we're just storing in the database
-    // See explanation below for real-time implementation
 
     Ok(HttpResponse::Created().json(new_message))
 }
