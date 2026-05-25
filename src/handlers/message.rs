@@ -11,6 +11,7 @@ use sqlx::{
     PgPool,
 };
 use crate::utils::{UserSummary, User, get_all_users};
+use crate::handlers::{WsSessions};
 
 // Message struct representing a message in the database
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
@@ -178,7 +179,31 @@ pub async fn send_message(
     .fetch_one(pool.get_ref())
     .await?;
 
-    // TODO: Send message in real-time via WebSocket
+    // Extract the shared session state
+    if let Some(sessions) = req.app_data::<web::Data<WsSessions>>() {
+        // 1. Acquire a Read Lock to look inside the HashMap safely across threads
+        if let Ok(map) = sessions.read() {
+            // 2. Look up the receiver's session
+            if let Some(session_to_clone) = (*map).get(&receiver_id) {
+                let mut session = session_to_clone.clone();
+                // Drop the map lock immediately! 
+                // Free the lock BEFORE doing async network IO (.await)
+                // We dont block before .await
+                drop(map);
+            
+                // Serialize the saved message to JSON and push it over the socket
+                if let Ok(msg_json) = serde_json::to_string(&new_message) {
+                    if let Err(e) = session.text(msg_json).await {
+                        tracing::error!("Failed to send real-time message to {}: {:?}", receiver_id, e);
+                        
+                    }
+                } else {
+                    tracing::error!("Failed to serialize message for WebSocket push.");
+                }
+            }}
+    } else {
+        tracing::warn!("WebSocket WsSessions state not initialized in app_data.");
+    }
 
     Ok(HttpResponse::Created().json(new_message))
 }

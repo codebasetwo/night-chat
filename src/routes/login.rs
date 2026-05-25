@@ -114,6 +114,6 @@ pub async fn login(
     transaction
         .commit()
         .await?;
-    Ok(HttpResponse::Ok().finish())
+    Ok(HttpResponse::Ok().finish()) // return token
 
 }
