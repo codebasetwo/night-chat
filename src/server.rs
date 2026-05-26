@@ -2,7 +2,10 @@ use std::net::TcpListener;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::net::IpAddr;
+use std::str::FromStr;
 use actix_web::{ dev, middleware::from_fn, web, App, HttpServer };
+use actix_governor::{Governor, GovernorConfigBuilder, };
 use sqlx::postgres::{ PgPoolOptions, PgPool };
 use crate::routes::{ home, greet, signup, login };
 use crate::configuration::DatabaseSettings;
@@ -13,7 +16,7 @@ use crate::handlers::message::{
     send_message, 
     get_chat_partners,
 };
-use crate::middlewares::{auth_middleware, socket_auth_middleware};
+use crate::middlewares::{auth_middleware, socket_auth_middleware, RealIpKeyExtractor};
 use tracing_actix_web::TracingLogger;
 use crate::handlers::ws_handler::{WsSessions, ws_handler};
 
@@ -30,11 +33,13 @@ impl Application {
             "{}:{}",
             configuration.application.host, configuration.application.port
         );
+        let host = configuration.application.host;
         let listener = TcpListener::bind(address)?;
         let port = listener.local_addr().unwrap().port();
         let server = run_server(
             listener,
             connection_pool,
+            host,
         )
         .await?;
 
@@ -57,17 +62,33 @@ pub fn get_connection_pool(database_config: &DatabaseSettings) -> PgPool {
 async fn run_server(
     tcp_listener: TcpListener,
     db_pool: PgPool,
+    host: String,
 ) -> Result<dev::Server, anyhow::Error>{
+
+    let trusted_reverse_proxy_ip = IpAddr::from_str(&host).unwrap();
+    let trusted_reverse_proxy_ip = web::Data::new(trusted_reverse_proxy_ip);
     let db_pool =web::Data::new(db_pool);
     // Initialize the real-time session tracker
     let ws_sessions: WsSessions = Arc::new(RwLock::new(HashMap::new()));
     let ws_sessions_data = web::Data::new(ws_sessions);
+
+    // Allow bursts with up to five requests per IP address
+    // and replenishes one element every two seconds
+    let governor_conf = GovernorConfigBuilder::default()
+        .seconds_per_request(2)
+        .burst_size(5)
+        .key_extractor(RealIpKeyExtractor)
+        // .use_headers()
+        .finish()
+        .unwrap();
+
     let server = HttpServer::new(move || {
         App::new()
-            .wrap(TracingLogger::default())
-            // .wrap(from_fn(rate_limit_middleware))
+            .app_data(trusted_reverse_proxy_ip.clone())
             .app_data(db_pool.clone())
             .app_data(ws_sessions_data.clone())
+            .wrap(TracingLogger::default())
+            .wrap(Governor::new(&governor_conf))
             .route("/", web::get().to(home))
             .route("/signup", web::post().to(signup))
             .route("/login", web::post().to(login))
