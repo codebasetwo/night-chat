@@ -18,6 +18,10 @@ use crate::domain::NewSubscriber;
 use crate::domain::SubscriberEmail;
 use crate::domain::SubscriberName;
 use crate::domain::SubscriberPassword;
+use crate::utils::StoreTokenError;
+use crate::utils::email::EmailClient;
+use crate::utils::{Token, spawn_blocking_with_tracing};
+use chrono::{Duration, Utc};
 
 #[derive(serde::Deserialize)]
 pub struct FormSignUpData {
@@ -39,7 +43,7 @@ pub enum SignUpError {
     TransactionCommitFailed(#[source] sqlx::Error),
 
     #[error("Failed to execute subscriber insertion query")]
-    UserInsertionFailed(#[source] sqlx::Error),
+    UserInsertionFailed(#[from] StoreTokenError),
 
     #[error("validating user {0}")]
     ValidationError(String),
@@ -56,6 +60,15 @@ impl ResponseError for SignUpError {
             SignUpError::UserInsertionFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             SignUpError::ValidationError(_) => StatusCode::BAD_REQUEST,
         }
+    }
+    fn error_response(&self) -> HttpResponse {
+        HttpResponse::build(self.status_code())
+            .json(serde_json::json!(
+                {
+                    "error": self.to_string(),
+                }
+            ))
+
     }
 }
 
@@ -91,36 +104,74 @@ pub async fn signup(
 ) -> Result<HttpResponse, SignUpError> {
     // Get the form data and convert to a new subscriber
     let new_subscriber: NewSubscriber = form.0.try_into().map_err(SignUpError::ValidationError)?;
-    let subscriber_password = SubscriberPassword::new(new_subscriber.password.expose_secret().to_string()).await;
-    
+    let subscriber_password: SubscriberPassword = SubscriberPassword::new(new_subscriber.password.expose_secret().to_string())
+        .await;
+            
     // Insert the subscriber into the database
     // Use transaction to ensure that the subscriber is only inserted if all operations succeed
-    let mut transaction = pool
+    let mut tx = pool
         .begin()
         .await
         .map_err(SignUpError::PoolConnectionFailed)?;
 
-    let _user_id = insert_users(&new_subscriber, subscriber_password.hashed_password, &mut transaction)
+    let user_id = insert_users(&new_subscriber, subscriber_password.hashed_password, &mut tx)
         .await
         .map_err(|e| match e {
             sqlx::Error::Database(db_err) if db_err.is_unique_violation() => {
                 SignUpError::EmailConflict
             }
-            other_sql_error => SignUpError::UserInsertionFailed(other_sql_error),
-        })?;
+            other_sql_error => SignUpError::UserInsertionFailed(StoreTokenError(other_sql_error)),
+    })?;
+
+    let token = Token::new(
+        user_id,
+        "activation",
+        Utc::now() + Duration::hours(24)
+    );
+
+    // Store token
+    token.insert_token(&mut tx)
+        .await
+        .map_err(|e| SignUpError::UserInsertionFailed(e))?;
+
     // commit the the transaction to save subcriber in the 
-    transaction
+    tx
         .commit()
         .await
         .map_err(SignUpError::TransactionCommitFailed)?;
+
+    let recipient = new_subscriber.email.as_ref();
+    let first_name = new_subscriber.first_name.as_ref();
+    let subject= "Welcome Email";
+
+    let email_client = EmailClient::build(
+        first_name, recipient, subject, &token.plaintext
+    ).map_err(|e| SignUpError::ValidationError(format!("Failed to create email client: {}", e)))?;
+
+    // fire and forget email sending task, we don't want to make the user wait for the email to be sent before we respond to them
+    spawn_blocking_with_tracing(move ||
+        match email_client.send_email() {
+            Ok(response) => {
+                tracing::info!("email sent sucessfully: {:?}", response);
+            }
+            Err(e) => {
+                tracing::error!("Message not sent.{:?}", e);
+            },
+        }
+    );
+
     // Return a response to client
-    Ok(HttpResponse::Created().finish())
+    Ok(HttpResponse::Created().json(serde_json::json!(
+        {
+            "message": "User created Successfully please check your email to activate your account",
+        }
+    )))
 }
 
 
 #[tracing::instrument(
     name = "Inserting new user in database.",
-    skip(new_subscriber, transaction),
+    skip(new_subscriber, hashed_password, transaction),
 )]
 pub async fn insert_users(
     new_subscriber: &NewSubscriber,
@@ -130,14 +181,15 @@ pub async fn insert_users(
     let user_id = Uuid::new_v4();
     let query = sqlx::query!(
         r#"
-        INSERT INTO users (id, email, first_name, last_name, password_hash)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO users (id, email, first_name, last_name, password_hash, is_activated)
+        VALUES ($1, $2, $3, $4, $5, $6)
         "#,
         user_id,
         new_subscriber.email.as_ref(),
         new_subscriber.first_name.as_ref(),
         new_subscriber.last_name.as_ref(),
         hashed_password.expose_secret(),
+        false,
     );
     transaction.execute(query).await?;
     Ok(user_id)

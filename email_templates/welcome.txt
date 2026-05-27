@@ -1,0 +1,6 @@
+Welcome to Night chat!
+Hi,
+Thanks for signing up for a Night-Chat account. We're excited to have you on board!
+Use the Token to activate your account, Here is your token http://localhost:8000/activate/{{token}}
+Thanks,
+The Night-Chat Team

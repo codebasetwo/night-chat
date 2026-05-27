@@ -2,14 +2,15 @@ use rand::distr::Alphanumeric;
 use rand::{rng, RngExt};
 use sqlx::{Executor, Transaction, Postgres};
 use chrono:: {DateTime, Utc};
+use secrecy::SecretString;
 use uuid;
 
 pub struct Token {
-    hash: Vec<u8>,
+    pub hash: Vec<u8>,
     expiry: DateTime<Utc>,
     scope: String,
     user_id: uuid::Uuid,
-    _plaintext: String,
+    pub plaintext: SecretString,
 }
 
 impl Token {
@@ -25,7 +26,7 @@ impl Token {
             expiry,
             scope: scope.to_string(),
             user_id,
-            _plaintext: plaintext,
+            plaintext: SecretString::new(plaintext),
         }
     }
 

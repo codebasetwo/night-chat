@@ -20,6 +20,7 @@ argon2 = "0.5.3"
 chrono = { version = "0.4.22", default-features = false, features = ["clock", "serde"] }
 config = "0.15.22"
 futures-util = "0.3.32"
+lettre = "0.11"
 rand = { version = "0.10", features = ["std_rng"] }
 secrecy = { version = "0.8", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -35,6 +36,7 @@ tracing-actix-web = "0.7"
 unicode-segmentation = "1.13.2"
 uuid = { version = "1.23.1", features = ["v4", "serde"] }
 validator = "0.20.0"
+dotenvy = "0.15.7"
 
 [dependencies.sqlx]
 version = "0.8"
