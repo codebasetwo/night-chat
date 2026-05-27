@@ -196,3 +196,122 @@ pub async fn insert_users(
 
 }
 
+
+pub async fn send_welcome_email(recipient: &str, recipient_name: &str, token: &SecretString) -> Result<(), Box<dyn std::error::Error>> {
+    let subject = "Welcome to our service!";
+    let email_client = EmailClient::build(recipient_name, recipient, subject, token)?;
+    email_client.send_email()?;
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+pub struct ActivateUserData {
+    token: String,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ActivateUserError {
+    #[error("Failed to acquire a Postgres connection from the pool")]
+    PoolConnectionFailed(#[source] sqlx::Error),
+
+    #[error("Failed to execute SQL query to activate user account.")]
+    UserActivationFailed(#[source] sqlx::Error),
+
+    #[error("Invalid or expired activation token.")]
+    InvalidToken,
+}
+
+pub async fn activate_user_handler(
+    query: web::Query<ActivateUserData>,
+    pool:web::Data<PgPool>,
+) -> Result<HttpResponse, ActivateUserError> {
+    // Validate the token and activate the user account
+    // This would involve checking the token against the database, ensuring it's validity, and then updating the user's account to be activated if the token is valid.
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| ActivateUserError::PoolConnectionFailed(e))?;
+
+    let token = query.0.token;
+    validate_token(&token, "activation", &mut tx)
+        .await?;
+
+    tx
+        .commit()
+        .await
+        .map_err(|e| ActivateUserError::PoolConnectionFailed(e))?;
+
+    Ok(
+        HttpResponse::NoContent().finish()
+    )
+}
+
+
+async fn validate_token(token: &str, activation: &str, tx: &mut Transaction<'_, Postgres>) -> Result<(), ActivateUserError> {
+    let token_hash = Token::hash_token(token);
+    // check the hash against the token table in the databse to ensure the token is valid and not expired
+    let token_record = sqlx::query!(
+            r#"
+                SELECT hash, user_id, expiry
+                FROM tokens
+                WHERE hash = $1
+                AND expiry > NOW()
+            "#,
+            token_hash,
+    )
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| ActivateUserError::PoolConnectionFailed(e))?;
+    
+    match token_record {
+        Some(record) => {
+            // Token is valid and not expired
+            tracing::info!("Token is valid for user");
+            update_user_activation_status(record.user_id, tx).await?;
+            delete_token(record.user_id, activation, tx).await?;
+            Ok(())
+        }
+        None => {
+            // Token not found or expired
+            return Err(ActivateUserError::InvalidToken);
+        }
+    }
+}
+
+
+async fn update_user_activation_status(
+    user_id: uuid::Uuid,
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<(), ActivateUserError> {
+    sqlx::query!(
+        r#"
+            UPDATE users
+            SET is_activated = true
+            WHERE id = $1
+        "#,
+        user_id,
+    )
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| ActivateUserError::UserActivationFailed(e))?;
+    Ok(())
+}
+
+async fn delete_token(
+    user_id: uuid::Uuid, 
+    activation: &str, 
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<(), ActivateUserError> {
+    sqlx::query!(
+        r#"
+        DELETE FROM tokens
+        WHERE scope = $1 AND user_id = $2
+        "#,
+        activation,
+        user_id,
+    )
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| ActivateUserError::PoolConnectionFailed(e))?;
+    Ok(())
+}
