@@ -63,7 +63,7 @@ pub async fn get_user_from_token(
 pub async fn get_user_data(
     pool: &sqlx::PgPool,
     email: &str,
-) -> Result<(uuid::Uuid,  SecretString), sqlx::Error> {
+) -> Result<Option<(uuid::Uuid,  SecretString)>, sqlx::Error> {
     let row = sqlx::query!(
         r#"
             SELECT id, password_hash
@@ -72,9 +72,11 @@ pub async fn get_user_data(
         "#,
         email,
     )
-    .fetch_one(pool)
-    .await?;
-    Ok((row.id, SecretString::new(row.password_hash)))
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| e)?
+    .map(|row| (row.id, SecretString::new(row.password_hash)));
+    Ok(row)
 }
 
 #[tracing::instrument(
