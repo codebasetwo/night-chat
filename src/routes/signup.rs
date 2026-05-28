@@ -297,7 +297,7 @@ async fn update_user_activation_status(
     Ok(())
 }
 
-async fn delete_token(
+pub async fn delete_token(
     user_id: uuid::Uuid, 
     activation: &str, 
     tx: &mut Transaction<'_, Postgres>,
