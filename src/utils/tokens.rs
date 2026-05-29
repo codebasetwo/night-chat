@@ -2,15 +2,15 @@ use rand::distr::Alphanumeric;
 use rand::{rng, RngExt};
 use sqlx::{Executor, Transaction, Postgres};
 use chrono:: {DateTime, Utc};
-use secrecy::SecretString;
 use uuid;
 
+#[derive(serde::Serialize)]
 pub struct Token {
     pub hash: Vec<u8>,
     expiry: DateTime<Utc>,
     scope: String,
     user_id: uuid::Uuid,
-    pub plaintext: SecretString,
+    pub plaintext: String,
 }
 
 impl Token {
@@ -26,11 +26,11 @@ impl Token {
             expiry,
             scope: scope.to_string(),
             user_id,
-            plaintext: SecretString::new(plaintext),
+            plaintext: plaintext,
         }
     }
 
-    fn generate_token() -> String {
+    pub fn generate_token() -> String {
         let rng = rng();
         rng.sample_iter(Alphanumeric)
             .take(25)

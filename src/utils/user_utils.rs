@@ -1,6 +1,7 @@
 use secrecy::{SecretString};
 use crate::utils::tokens::Token;
 
+#[derive(Debug, Clone)]
 pub struct User{
     pub id: uuid::Uuid,
     pub first_name: String,

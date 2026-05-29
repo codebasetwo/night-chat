@@ -5,6 +5,7 @@ use secrecy::{SecretString, ExposeSecret};
 use crate::utils::Token;
 use crate::utils::email::EmailClient;
 use crate::utils::spawn_blocking_with_tracing;
+use crate::utils::user_utils::{User};
 
 use crate::domain::{SubscriberPassword};
 
@@ -29,6 +30,8 @@ pub enum PasswordResetError {
     InvalidToken,
     #[error("failed to insert token in database")]
     StoreTokenFailed(#[source] anyhow::Error),
+    #[error("User not authenticated")]
+    NotAuthenticated,
 }
 
 impl ResponseError for PasswordResetError {
@@ -41,6 +44,7 @@ impl ResponseError for PasswordResetError {
             PasswordResetError::EmailClientCreationFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             PasswordResetError::InvalidToken => StatusCode::BAD_REQUEST,
             PasswordResetError::StoreTokenFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            PasswordResetError::NotAuthenticated => StatusCode::UNAUTHORIZED,
         }
     }
 }
@@ -68,11 +72,12 @@ pub async fn reset_password(
         .await
         .map_err(|e| PasswordResetError::PoolConnectionFailed(e))?;
     // Send password reset email to user with the token
+
     let email_client = EmailClient::build(
         &user.first_name,
         &user.email,
         "Password Reset Request",
-        &token.plaintext,
+        &SecretString::new(token.plaintext),
     ).map_err(|_e| PasswordResetError::EmailClientCreationFailed(anyhow::anyhow!("Failed to create email client")))?;
 
     // fire and forget email sending task, we don't want to make the user wait for the email to be sent before we respond to them
@@ -96,7 +101,7 @@ pub async fn reset_password(
 pub struct PasswordResetData {
     token: String,
 }
-
+#[derive(serde::Deserialize)]
 pub struct NewPasswordData {
     password: SecretString,
 }
@@ -236,4 +241,40 @@ async fn user_activated(
         None => Err(PasswordResetError::EmailNotFound),
     }
     
+}
+
+// POST /api/account/set-password   (protected route — user must be logged in)
+pub async fn set_password_account(
+    pool: web::Data<PgPool>,
+    user: web::ReqData<User>,
+    body: web::Json<NewPasswordData>,
+) -> Result<HttpResponse, PasswordResetError> {
+    let user = Some(user.into_inner());
+    if user.is_none() {
+        return Err(PasswordResetError::NotAuthenticated);
+    }
+    let new_password = body.0.password.expose_secret().to_string();
+    let password = SubscriberPassword::new(new_password).await;
+    
+    let hash = Token::hash_token(password.hashed_password.expose_secret());
+    let hash = String::from_utf8(hash).unwrap();
+    let user = user.unwrap();
+    set_password(hash, user, &pool)
+        .await
+        .map_err(|e| PasswordResetError::PoolConnectionFailed(e))
+}
+
+async fn set_password(
+    hash: String,
+    user: User,
+    pool: &PgPool,
+) -> Result<HttpResponse, sqlx::Error> {
+    sqlx::query!(
+        "UPDATE users SET password_hash = $1 WHERE id = $2",
+        hash,
+        user.id
+    )
+    .execute(pool)
+    .await?;
+    Ok(HttpResponse::Ok().json("Password set successfully"))
 }

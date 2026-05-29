@@ -145,7 +145,7 @@ pub async fn signup(
     let subject= "Welcome Email";
 
     let email_client = EmailClient::build(
-        first_name, recipient, subject, &token.plaintext
+        first_name, recipient, subject, &SecretString::new(token.plaintext)
     ).map_err(|e| SignUpError::ValidationError(format!("Failed to create email client: {}", e)))?;
 
     // fire and forget email sending task, we don't want to make the user wait for the email to be sent before we respond to them
