@@ -19,8 +19,8 @@ use crate::handlers::message::{
 };
 use crate::handlers::ws_handler::{WsSessions, ws_handler};
 use crate::middlewares::{auth_middleware, socket_auth_middleware, RealIpKeyExtractor};
-use crate::oauth::oauth::{AppConfig, redirect_uri, oauth};
-use crate::routes::{ home, greet, signup, login, handle_password_reset, set_password_account };
+use crate::oauth::oauth;
+use crate::routes::{home, login, logout, password, signup};
 
 pub struct Application {
     port: u16,
@@ -68,7 +68,7 @@ async fn run_server(
 ) -> Result<dev::Server, anyhow::Error>{
     dotenvy::dotenv()?;
 
-    let google_app_config = AppConfig{
+    let google_app_config = oauth::AppConfig{
         google_client_id: std::env::var("GOOGLE_CLIENT_ID").expect("Please provide your google client ID"),
         google_client_secret: SecretString::new(std::env::var("GOOGLE_CLIENT_SECRET").expect("Please provide google client secret")),//.expect("Please provide yout google client secret"),
         redirect_uri: std::env::var("REDIRECT_URI").expect("Please provide google redirect uri"),
@@ -100,12 +100,12 @@ async fn run_server(
             .wrap(Governor::new(&governor_conf))
             .service(
                 web::scope("/v1/api")
-                .route("/", web::get().to(home))
-                .route("/signup", web::post().to(signup))
-                .route("/login", web::post().to(login))
-                .route("/google_login", web::post().to(oauth))
-                .route("/oauth/callback", web::post().to(redirect_uri))
-                .route("/{name}", web::get().to(greet))
+                .route("/", web::get().to(home::home))
+                .route("/signup", web::post().to(signup::signup))
+                .route("/login", web::post().to(login::login))
+                .route("/google_login", web::post().to(oauth::oauth))
+                .route("/oauth/callback", web::post().to(oauth::redirect_uri))
+                .route("/{name}", web::get().to(home::greet))
             )
             
             // create routes for message prefix /messages without duplicating the prefix
@@ -120,8 +120,9 @@ async fn run_server(
             .service(
                 web::scope("/v1/api/account")
                     .wrap(from_fn(auth_middleware))
-                    .route("/password/request_reset", web::post().to(handle_password_reset))
-                    .route("/password/set_password", web::post().to(set_password_account))
+                    .route("/password/request_reset", web::post().to(password::handle_password_reset))
+                    .route("/password/set_password", web::post().to(password::set_password_account))
+                    .route("/logout", web::post().to(logout::logout))
             )
             // WebSocket endpoint — also auth-protected
             .service(
