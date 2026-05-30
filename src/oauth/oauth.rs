@@ -3,6 +3,7 @@ use secrecy::{SecretString, ExposeSecret};
 use sqlx::PgPool;
 use chrono::{Duration, Utc};
 use crate::utils::Token;
+use crate::utils::PkceChallenge;
 
 #[derive(thiserror::Error, Debug)]
 pub enum OauthError {
@@ -40,8 +41,10 @@ pub async fn oauth(
 ) -> Result<HttpResponse, OauthError> {
     // create a random state parameter for CSRF protection
     let state = Token::generate_token();
+
+    let pkce = PkceChallenge::new();
     // persist the state so the callback can verify it (CSRF protection)
-    store_oauth_state(&pool, &state)
+    store_oauth_state(&pool, &state, &pkce.code_verifier)
         .await
         .map_err(|e| OauthError::Unexpected(format!("Failed to store state: {}", e)))?;
 
@@ -49,8 +52,8 @@ pub async fn oauth(
     let google_client_id = &config.google_client_id;
     let redirect_uri = &config.redirect_uri;
     let auth_url = format!(
-        "{}?client_id={}&redirect_uri={}&response_type=code&state={}&scope=openid%20email%20profile",
-        auth_base_url, google_client_id, redirect_uri, state,
+        "{}?client_id={}&redirect_uri={}&response_type=code&state={}&scope=openid%20email%20profile&code_challenge={}",
+        auth_base_url, google_client_id, redirect_uri, state, pkce.code_challenge,
     );
 
     Ok(
@@ -97,15 +100,11 @@ pub async fn redirect_uri(
         None => return Err(OauthError::BadRequest("Invalid state parameter".into())),
     };
 
-    // Verify the state parameter to prevent CSRF attacks
-    let valid_state = verify_and_delete_oauth_state(&pool, state)
+    // Verify the state parameter to prevent CSRF attacks and get the code_verifier
+    let code_verifier = verify_and_delete_oauth_state(&pool, state)
         .await
-        .map_err(|e| OauthError::Unexpected(e.to_string()))?;
-
-    if !valid_state {
-        return Err(OauthError::BadRequest("Invalid or expired state".into()))
-    }
-
+        .map_err(|e| OauthError::Unexpected(e.to_string()))?
+        .ok_or_else(|| OauthError::BadRequest("Invalid or expired state".into()))?;
 
     // Exchange the code for tokens
     let http_client = reqwest::Client::new();
@@ -118,6 +117,7 @@ pub async fn redirect_uri(
             ("client_secret", config.google_client_secret.expose_secret()),
             ("redirect_uri", config.redirect_uri.as_str()),
             ("grant_type", "authorization_code"),
+            ("code_verifier", code_verifier.as_str())
         ])
         .send()
         .await;
@@ -182,11 +182,11 @@ pub async fn redirect_uri(
 }
 
 /// Persist the OAuth state value so the callback can verify it.
-async fn store_oauth_state(pool: &PgPool, state: &str) -> Result<(), sqlx::Error> {
+async fn store_oauth_state(pool: &PgPool, state: &str, code_verifier: &str ) -> Result<(), sqlx::Error> {
     let expires_at = chrono::Utc::now() + chrono::Duration::minutes(10);
     sqlx::query!(
-        "INSERT INTO oauth_states (state, expires_at) VALUES ($1, $2)",
-        state, expires_at
+        "INSERT INTO oauth_states (state, expires_at, code_verifier) VALUES ($1, $2, $3)",
+        state, expires_at, code_verifier
     )
     .execute(pool)
     .await?;
@@ -197,16 +197,15 @@ async fn store_oauth_state(pool: &PgPool, state: &str) -> Result<(), sqlx::Error
 async fn verify_and_delete_oauth_state(
     pool:  &PgPool,
     state: &str,
-) -> Result<bool, sqlx::Error> {
-    let row = sqlx::query!(
-        "DELETE FROM oauth_states
-         WHERE state = $1 AND expires_at > NOW()
-         RETURNING state",
-        state
+) -> Result<Option<String>, sqlx::Error> {
+    let row: Option<_> = sqlx::query!(
+        r#"DELETE FROM oauth_states WHERE state = $1 AND expires_at > NOW() - INTERVAL '10 minutes'
+         RETURNING code_verifier"#,
+        state, 
     )
     .fetch_optional(pool)
     .await?;
-    Ok(row.is_some())
+    Ok(row.map(|r| r.code_verifier))
 }
 
 

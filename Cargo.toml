@@ -17,6 +17,7 @@ actix-ws = "0.4.0"
 actix-governor = "0.6"
 anyhow = "1.0"
 argon2 = "0.5.3"
+base64 = "0.21"
 chrono = { version = "0.4.22", default-features = false, features = ["clock", "serde"] }
 config = "0.15.22"
 futures-util = "0.3.32"

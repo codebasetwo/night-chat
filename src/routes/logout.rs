@@ -1,4 +1,7 @@
-use actix_web::{HttpResponse, HttpRequest, ResponseError, http::StatusCode, web};
+use actix_web::{HttpResponse, HttpRequest, ResponseError, 
+    http::{header, StatusCode}, 
+    web,
+};
 use sqlx::{PgPool};
 use crate::utils::{Token, User};
 
@@ -51,6 +54,8 @@ pub async fn logout(
     .execute(pool.get_ref())   
     .await?; 
     Ok(
-        HttpResponse::NoContent().finish()
+        HttpResponse::SeeOther()
+        .insert_header((header::LOCATION, "/v1/api"))
+        .finish()
     )
 }
